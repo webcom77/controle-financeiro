@@ -46,7 +46,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Supabase Cloud State
   const [supabaseUrl, setSupabaseUrl] = useState('');
   const [supabaseKey, setSupabaseKey] = useState('');
-  const [credSource, setCredSource] = useState<'env' | 'custom' | 'none'>('none');
+  const [credSource, setCredSource] = useState<'env' | 'default' | 'custom' | 'none'>('none');
   const [cloudTesting, setCloudTesting] = useState(false);
   const [cloudStatusMsg, setCloudStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isMigrating, setIsMigrating] = useState(false);
@@ -218,13 +218,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   {credSource === 'env' && (
                     <span className="text-[10px] text-purple-600 ml-1 font-normal">(Configurado via Vercel / .env)</span>
                   )}
+                  {credSource === 'default' && (
+                    <span className="text-[10px] text-emerald-600 ml-1 font-normal">(Conectado Automaticamente)</span>
+                  )}
                 </label>
                 <input
                   type="text"
                   placeholder="https://seu-projeto.supabase.co"
                   value={supabaseUrl}
                   onChange={(e) => setSupabaseUrl(e.target.value)}
-                  disabled={credSource === 'env'}
+                  disabled={credSource === 'env' || credSource === 'default'}
                   className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-purple-600 disabled:opacity-60"
                 />
               </div>
@@ -238,7 +241,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   placeholder="eyJhbGciOi..."
                   value={supabaseKey}
                   onChange={(e) => setSupabaseKey(e.target.value)}
-                  disabled={credSource === 'env'}
+                  disabled={credSource === 'env' || credSource === 'default'}
                   className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-purple-600 disabled:opacity-60"
                 />
               </div>
@@ -257,7 +260,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               <div className="flex flex-wrap items-center gap-2 pt-1">
-                {credSource !== 'env' && (
+                {credSource !== 'env' && credSource !== 'default' && (
                   <button
                     type="button"
                     onClick={handleSaveCloudCredentials}

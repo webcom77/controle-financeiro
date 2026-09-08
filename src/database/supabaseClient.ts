@@ -7,12 +7,20 @@ let cachedClient: SupabaseClient | null = null;
 let lastUsedUrl = '';
 let lastUsedKey = '';
 
-export function getSupabaseCredentials(): { url: string; key: string; source: 'env' | 'custom' | 'none' } {
+// Credenciais padrão embutidas no código (conectam automaticamente sem precisar digitar nada)
+export const DEFAULT_SUPABASE_URL = 'https://ryzqbtssaiaaovnsmfkt.supabase.co';
+export const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_03F9Tonk8HVKgSapNE8kjw_iFyb6N4s';
+
+export function getSupabaseCredentials(): { url: string; key: string; source: 'env' | 'default' | 'custom' | 'none' } {
   const envUrl = (import.meta.env.VITE_SUPABASE_URL as string || '').trim();
   const envKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string || '').trim();
 
   if (envUrl && envKey) {
     return { url: envUrl, key: envKey, source: 'env' };
+  }
+
+  if (DEFAULT_SUPABASE_URL && DEFAULT_SUPABASE_ANON_KEY) {
+    return { url: DEFAULT_SUPABASE_URL, key: DEFAULT_SUPABASE_ANON_KEY, source: 'default' };
   }
 
   const customUrl = (localStorage.getItem(STORAGE_KEY_CUSTOM_URL) || '').trim();

@@ -297,7 +297,7 @@ class DatabaseService {
   public getCloudStatus(): {
     configured: boolean;
     connected: boolean;
-    source: 'env' | 'custom' | 'none';
+    source: 'env' | 'default' | 'custom' | 'none';
   } {
     const creds = getSupabaseCredentials();
     return {
@@ -521,7 +521,7 @@ class DatabaseService {
             this.notifyListeners();
           }
         )
-        .subscribe((status) => {
+        .subscribe((status: any) => {
           if (status === 'SUBSCRIBED') {
             this.realtimeSubscribed = true;
           }
@@ -661,7 +661,7 @@ class DatabaseService {
           alert_days_before: settings.alert_days_before,
           updated_at: new Date().toISOString(),
         })
-        .then(({ error }) => {
+        .then(({ error }: any) => {
           if (error) console.error('Erro ao salvar settings no Supabase:', error);
         });
     }
@@ -702,7 +702,7 @@ class DatabaseService {
             created_at: newBorrower.created_at,
           },
         ])
-        .then(({ error }) => {
+        .then(({ error }: any) => {
           if (error) console.error('Erro ao salvar borrower no Supabase:', error);
         });
     }
@@ -805,7 +805,7 @@ class DatabaseService {
             document: borrower.document || null,
           })
           .eq('id', borrower.id)
-          .then(({ error }) => {
+          .then(({ error }: any) => {
             if (error) console.error('Erro ao atualizar borrower no Supabase:', error);
           });
       }
@@ -868,7 +868,7 @@ class DatabaseService {
             created_at: newLoan.created_at,
           },
         ])
-        .then(({ error }) => {
+        .then(({ error }: any) => {
           if (error) console.error('Erro ao salvar loan no Supabase:', error);
         });
 
@@ -886,7 +886,7 @@ class DatabaseService {
             status: inst.status,
           }))
         )
-        .then(({ error }) => {
+        .then(({ error }: any) => {
           if (error) console.error('Erro ao salvar installments no Supabase:', error);
         });
     }
@@ -912,7 +912,7 @@ class DatabaseService {
         .from('loans')
         .delete()
         .eq('id', loanId)
-        .then(({ error }) => {
+        .then(({ error }: any) => {
           if (error) console.error('Erro ao deletar loan no Supabase:', error);
         });
     }
@@ -1026,7 +1026,7 @@ class DatabaseService {
           payment_method: params.payment_method,
         })
         .eq('id', params.installment_id)
-        .then(({ error }) => {
+        .then(({ error }: any) => {
           if (error) console.error('Erro ao atualizar installment no Supabase:', error);
         });
 
@@ -1050,7 +1050,7 @@ class DatabaseService {
             payment_method: paymentRecord.payment_method,
           },
         ])
-        .then(({ error }) => {
+        .then(({ error }: any) => {
           if (error) console.error('Erro ao salvar payment no Supabase:', error);
         });
 
@@ -1059,7 +1059,7 @@ class DatabaseService {
           .from('loans')
           .update({ status: 'completed' })
           .eq('id', loan.id)
-          .then(({ error }) => {
+          .then(({ error }: any) => {
             if (error) console.error('Erro ao atualizar status do loan no Supabase:', error);
           });
       }
