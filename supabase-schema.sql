@@ -78,24 +78,48 @@ CREATE TABLE IF NOT EXISTS public.payments (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- HABILITAR REALTIME NAS TABELAS
-ALTER PUBLICATION supabase_realtime ADD TABLE public.settings;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.borrowers;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.loans;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.installments;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.payments;
+-- HABILITAR REALTIME NAS TABELAS (Seguro contra repetições)
+DO $$
+BEGIN
+    BEGIN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.settings;
+    EXCEPTION WHEN others THEN NULL; END;
+
+    BEGIN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.borrowers;
+    EXCEPTION WHEN others THEN NULL; END;
+
+    BEGIN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.loans;
+    EXCEPTION WHEN others THEN NULL; END;
+
+    BEGIN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.installments;
+    EXCEPTION WHEN others THEN NULL; END;
+
+    BEGIN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.payments;
+    EXCEPTION WHEN others THEN NULL; END;
+END $$;
 
 -- CONFIGURAR POLÍTICAS DE ACESSO (Row Level Security - RLS)
--- Permite leitura e escrita públicas com a chave pública anon do Supabase
-
 ALTER TABLE public.settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.borrowers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.loans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.installments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Allow public all on settings" ON public.settings;
 CREATE POLICY "Allow public all on settings" ON public.settings FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public all on borrowers" ON public.borrowers;
 CREATE POLICY "Allow public all on borrowers" ON public.borrowers FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public all on loans" ON public.loans;
 CREATE POLICY "Allow public all on loans" ON public.loans FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public all on installments" ON public.installments;
 CREATE POLICY "Allow public all on installments" ON public.installments FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public all on payments" ON public.payments;
 CREATE POLICY "Allow public all on payments" ON public.payments FOR ALL USING (true) WITH CHECK (true);
