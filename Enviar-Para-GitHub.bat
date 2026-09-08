@@ -1,33 +1,50 @@
 @echo off
-title Enviar Projeto para o GitHub
+title Enviar Projeto Atualizado para o GitHub
 echo ========================================================
-echo   CONECTAR E SUBIR PARA O GITHUB
+echo   ENVIAR ATUALIZACAO COM SUPABASE PARA O GITHUB
 echo ========================================================
 echo.
-echo Escolha como deseja conectar com o seu GitHub:
-echo.
-echo [1] Usar GitHub CLI (Abre o navegador para login com 1 clique e cria o repositorio automatico)
-echo [2] Ja criei o repositorio no site do GitHub e quero colar o link
-echo.
-set /p OPTION="Digite 1 ou 2: "
 
-if "%OPTION%"=="1" (
-    echo.
-    echo 1. Vamos autenticar seu usuario no GitHub pelo navegador...
-    "C:\Program Files\GitHub CLI\gh.exe" auth login -w -p https -h github.com
-    echo.
-    echo 2. Criando o repositorio no seu GitHub e enviando os arquivos...
-    "C:\Program Files\GitHub CLI\gh.exe" repo create controle-financeiro --public --source=. --remote=origin --push
-) else (
-    echo.
-    set /p REPO_URL="Cole a URL do repositorio (ex: https://github.com/webcom77/controle-financeiro.git): "
-    git remote remove origin 2>nul
-    git remote add origin %REPO_URL%
-    git push -u origin main
+:: Localizar o executavel do Git
+set GIT_CMD=git
+where git >nul 2>&1
+if errorlevel 1 (
+    if exist "%LOCALAPPDATA%\GitHubDesktop\app-3.6.3\resources\app\git\cmd\git.exe" (
+        set "GIT_CMD=%LOCALAPPDATA%\GitHubDesktop\app-3.6.3\resources\app\git\cmd\git.exe"
+    ) else (
+        for /d %%D in ("%LOCALAPPDATA%\GitHubDesktop\app-*\resources\app\git\cmd") do (
+            if exist "%%D\git.exe" set "GIT_CMD=%%D\git.exe"
+        )
+    )
 )
 
+echo Usando Git: %GIT_CMD%
 echo.
-echo ========================================================
-echo   Processo finalizado com sucesso!
-echo ========================================================
+
+echo 1. Adicionando arquivos modificados...
+"%GIT_CMD%" add .
+
+echo.
+echo 2. Registrando alteracoes...
+"%GIT_CMD%" commit -m "feat: adicionar suporte a banco de dados em nuvem Supabase" 2>nul
+
+echo.
+echo 3. Enviando para o repositorio remoto no GitHub...
+"%GIT_CMD%" push -u origin main
+
+if errorlevel 1 (
+    echo.
+    echo ========================================================
+    echo   ATENCAO: Se o envio pedir login ou permissao:
+    echo   1. Voce pode abrir o GitHub Desktop e publicar/dar push.
+    echo   2. Ou usar seu Personal Access Token do GitHub.
+    echo ========================================================
+) else (
+    echo.
+    echo ========================================================
+    echo   Sucesso! Codigo enviado para o GitHub.
+    echo   O Vercel iniciara o deploy automatico em instantes!
+    echo ========================================================
+)
+
 pause

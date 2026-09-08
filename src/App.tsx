@@ -10,7 +10,8 @@ import {
   Bell,
   RefreshCw,
   Sun,
-  Moon
+  Moon,
+  Cloud
 } from 'lucide-react';
 import { db } from './database/db';
 import {
@@ -83,6 +84,10 @@ export function App() {
 
   useEffect(() => {
     refreshData();
+    const unsubscribe = db.onDataChanged(() => {
+      refreshData();
+    });
+    return () => unsubscribe();
   }, []);
 
   const toggleTheme = () => {
@@ -395,6 +400,35 @@ export function App() {
                   {settings.default_interest_rate}% a.m.
                 </span>
               </div>
+
+              {/* Cloud Status Badge */}
+              <button
+                onClick={() => setIsSettingsOpen(true)}
+                title={
+                  db.isCloudConnected()
+                    ? 'Nuvem Conectada (Supabase Ativo)'
+                    : 'Modo Local (Clique para conectar Supabase)'
+                }
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+                  db.isCloudConnected()
+                    ? isDark
+                      ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/60 hover:bg-emerald-900/60'
+                      : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                    : isDark
+                      ? 'bg-amber-950/60 text-amber-400 border border-amber-800/60 hover:bg-amber-900/60'
+                      : 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100'
+                }`}
+              >
+                <Cloud className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">
+                  {db.isCloudConnected() ? 'Nuvem Conectada' : 'Modo Local'}
+                </span>
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    db.isCloudConnected() ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+                  }`}
+                />
+              </button>
             </div>
           </header>
 
