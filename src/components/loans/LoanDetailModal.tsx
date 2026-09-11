@@ -176,93 +176,101 @@ export const LoanDetailModal: React.FC<LoanDetailModalProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {installments.map((inst) => {
-                      const isPaid = inst.status === 'paid';
-                      const dueInfo = getDueStatusInfo(inst.due_date, isPaid);
-                      const hasCharges = inst.total_charges && inst.total_charges > 0;
+                    {installments.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="py-8 text-center text-slate-400 font-semibold text-xs">
+                          Nenhuma parcela cadastrada para este empréstimo.
+                        </td>
+                      </tr>
+                    ) : (
+                      installments.map((inst) => {
+                        const isPaid = inst.status === 'paid';
+                        const dueInfo = getDueStatusInfo(inst.due_date, isPaid);
+                        const hasCharges = inst.total_charges && inst.total_charges > 0;
 
-                      return (
-                        <tr
-                          key={inst.id}
-                          className={`hover:bg-slate-50 transition-colors ${
-                            inst.status === 'overdue' ? 'bg-rose-50/40' : ''
-                          }`}
-                        >
-                          <td className="py-3 px-4 font-bold text-slate-900">
-                            #{inst.installment_number}
-                          </td>
-                          <td className="py-3 px-4 font-semibold text-slate-700">
-                            {formatDate(inst.due_date)}
-                          </td>
-                          <td className="py-3 px-4 text-slate-900 font-bold">
-                            {formatCurrency(inst.original_amount)}
-                          </td>
-                          <td className="py-3 px-4 text-slate-500">
-                            {isPaid ? (
-                              <span className="text-emerald-600 font-semibold text-[11px]">
-                                Pago em {formatDate(inst.paid_date)}
-                              </span>
-                            ) : inst.days_overdue && inst.days_overdue > 0 ? (
-                              <span className="text-rose-600 font-bold">
-                                {inst.days_overdue} dias (+{formatCurrency(inst.total_charges)})
-                              </span>
-                            ) : (
-                              '0 dias'
-                            )}
-                          </td>
-                          <td className="py-3 px-4">
-                            <span
-                              className={`font-black text-sm ${
-                                isPaid
-                                  ? 'text-emerald-600'
-                                  : hasCharges
-                                  ? 'text-rose-600'
-                                  : 'text-slate-900'
-                              }`}
-                            >
-                              {formatCurrency(isPaid ? inst.paid_amount : inst.current_total_due || inst.original_amount)}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className={`px-2.5 py-0.5 text-[10px] font-bold rounded-full ${
-                              isPaid ? 'bg-emerald-100 text-emerald-800' :
-                              inst.status === 'overdue' ? 'bg-rose-100 text-rose-800' :
-                              'bg-slate-100 text-slate-700'
-                            }`}>
-                              {dueInfo.label}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 text-right">
-                            <div className="flex items-center justify-end gap-1.5">
-                              {!isPaid && (
-                                <>
-                                  <button
-                                    onClick={() => onReceiveInstallment(inst)}
-                                    className="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-sm transition-all"
-                                  >
-                                    Receber
-                                  </button>
-
-                                  <button
-                                    onClick={() => handleShareWhatsApp(inst)}
-                                    title="Cobrar via WhatsApp"
-                                    className="p-1 rounded-full bg-slate-100 hover:bg-emerald-50 text-slate-500 hover:text-emerald-600 transition-all"
-                                  >
-                                    <Share2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </>
-                              )}
-                              {isPaid && (
-                                <span className="text-[11px] text-emerald-600 font-bold flex items-center gap-1">
-                                  <CheckCircle2 className="w-3.5 h-3.5" />
-                                  {inst.payment_method || 'Recebido'}
+                        return (
+                          <tr
+                            key={inst.id}
+                            className={`hover:bg-slate-50 transition-colors ${
+                              inst.status === 'overdue' ? 'bg-rose-50/40' : ''
+                            }`}
+                          >
+                            <td className="py-3 px-4 font-bold text-slate-900">
+                              #{inst.installment_number}
+                            </td>
+                            <td className="py-3 px-4 font-semibold text-slate-700">
+                              {formatDate(inst.due_date)}
+                            </td>
+                            <td className="py-3 px-4 text-slate-600 font-bold">
+                              {formatCurrency(inst.original_amount)}
+                            </td>
+                            <td className="py-3 px-4 text-slate-500">
+                              {isPaid ? (
+                                <span className="text-emerald-600 font-semibold text-[11px]">
+                                  Pago em {formatDate(inst.paid_date)}
                                 </span>
+                              ) : inst.days_overdue && inst.days_overdue > 0 ? (
+                                <span className="text-rose-600 font-bold">
+                                  {inst.days_overdue} dias (+{formatCurrency(inst.total_charges)})
+                                </span>
+                              ) : (
+                                '0 dias'
                               )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                            </td>
+                            <td className="py-3 px-4">
+                              <span
+                                className={`font-black text-sm ${
+                                  isPaid
+                                    ? 'text-emerald-600'
+                                    : hasCharges
+                                    ? 'text-rose-600'
+                                    : 'text-slate-900'
+                                }`}
+                              >
+                                {formatCurrency(isPaid ? inst.paid_amount : inst.current_total_due || inst.original_amount)}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className={`px-2.5 py-0.5 text-[10px] font-bold rounded-full ${
+                                isPaid ? 'bg-emerald-100 text-emerald-800' :
+                                inst.status === 'overdue' ? 'bg-rose-100 text-rose-800' :
+                                'bg-slate-100 text-slate-700'
+                              }`}>
+                                {dueInfo.label}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                {!isPaid && (
+                                  <>
+                                    <button
+                                      onClick={() => onReceiveInstallment(inst)}
+                                      className="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-sm transition-all"
+                                    >
+                                      Receber
+                                    </button>
+
+                                    <button
+                                      onClick={() => handleShareWhatsApp(inst)}
+                                      title="Cobrar via WhatsApp"
+                                      className="p-1 rounded-full bg-slate-100 hover:bg-emerald-50 text-slate-500 hover:text-emerald-600 transition-all"
+                                    >
+                                      <Share2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </>
+                                )}
+                                {isPaid && (
+                                  <span className="text-[11px] text-emerald-600 font-bold flex items-center gap-1">
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    {inst.payment_method || 'Recebido'}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
                   </tbody>
                 </table>
               </div>

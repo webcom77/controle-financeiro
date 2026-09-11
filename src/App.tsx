@@ -126,7 +126,7 @@ export function App() {
 
       if (currentFilter === 'all' || currentFilter === 'active') return true;
 
-      const loanInsts = allInstallments.filter((i) => i.loan_id === loan.id && i.status !== 'paid');
+      const loanInsts = allInstallments.filter((i) => Number(i.loan_id) === Number(loan.id) && i.status !== 'paid');
 
       if (currentFilter === 'overdue') {
         return loanInsts.some((i) => i.status === 'overdue' || (i.days_overdue && i.days_overdue > 0));
@@ -165,16 +165,16 @@ export function App() {
   // Selected Loan entity
   const selectedLoan = useMemo(() => {
     if (!selectedLoanId) return null;
-    return loans.find((l) => l.id === selectedLoanId) || null;
+    return loans.find((l) => Number(l.id) === Number(selectedLoanId)) || null;
   }, [selectedLoanId, loans]);
 
   const selectedLoanInstallments = useMemo(() => {
     if (!selectedLoanId) return [];
-    return allInstallments.filter((i) => i.loan_id === selectedLoanId);
+    return allInstallments.filter((i) => Number(i.loan_id) === Number(selectedLoanId));
   }, [selectedLoanId, allInstallments]);
 
   // Action Handlers
-  const handleCreateLoan = (data: {
+  const handleCreateLoan = async (data: {
     borrower_name: string;
     principal_amount: number;
     monthly_interest_rate: number;
@@ -183,32 +183,50 @@ export function App() {
     first_due_date: string;
     notes?: string;
   }) => {
-    db.createLoan(data);
-    refreshData();
-    setPrefilledSimulation(null);
-  };
-
-  const handleDeleteLoan = (loanId: number) => {
-    db.deleteLoan(loanId);
-    if (selectedLoanId === loanId) {
-      setSelectedLoanId(null);
+    try {
+      await db.createLoan(data);
+      refreshData();
+      setPrefilledSimulation(null);
+    } catch (err: any) {
+      console.error('Erro ao criar empréstimo:', err);
+      alert(err?.message || 'Erro ao criar empréstimo.');
+      refreshData();
     }
-    refreshData();
   };
 
-  const handleConfirmPayment = (data: {
+  const handleDeleteLoan = async (loanId: number) => {
+    try {
+      await db.deleteLoan(loanId);
+      if (selectedLoanId === loanId) {
+        setSelectedLoanId(null);
+      }
+      refreshData();
+    } catch (err: any) {
+      console.error('Erro ao excluir empréstimo:', err);
+      alert('Erro ao excluir empréstimo.');
+      refreshData();
+    }
+  };
+
+  const handleConfirmPayment = async (data: {
     installment_id: number;
     paid_amount: number;
     paid_date: string;
     payment_method: PaymentMethod;
   }) => {
-    db.receiveInstallmentPayment(data);
-    refreshData();
-    setPaymentInstallment(null);
+    try {
+      await db.receiveInstallmentPayment(data);
+      refreshData();
+      setPaymentInstallment(null);
+    } catch (err: any) {
+      console.error('Erro ao registrar pagamento:', err);
+      alert('Erro ao registrar pagamento.');
+      refreshData();
+    }
   };
 
-  const handleSaveSettings = (newSettings: SystemSettings) => {
-    db.saveSettings(newSettings);
+  const handleSaveSettings = async (newSettings: SystemSettings) => {
+    await db.saveSettings(newSettings);
     setCurrentTheme(newSettings.theme);
     refreshData();
   };
@@ -509,7 +527,7 @@ export function App() {
         settings={settings}
         monthlyInterestRate={
           selectedLoan?.monthly_interest_rate ||
-          loans.find((l) => l.id === paymentInstallment?.loan_id)?.monthly_interest_rate ||
+          loans.find((l) => Number(l.id) === Number(paymentInstallment?.loan_id))?.monthly_interest_rate ||
           settings.default_interest_rate
         }
         onConfirmPayment={handleConfirmPayment}

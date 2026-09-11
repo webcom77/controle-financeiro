@@ -107,7 +107,7 @@ export const CompletedLoansList: React.FC<CompletedLoansListProps> = ({
           </thead>
           <tbody className={`divide-y ${isDark ? 'divide-[#202533]' : 'divide-slate-100'}`}>
             {completedLoans.map((loan) => {
-              const loanInstallments = allInstallments.filter((i) => i.loan_id === loan.id);
+              const loanInstallments = allInstallments.filter((i) => Number(i.loan_id) === Number(loan.id));
               const totalPaidVal = loan.total_paid || 0;
               const loanProfit = totalPaidVal - loan.principal_amount;
 

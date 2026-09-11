@@ -26,7 +26,7 @@ interface NewLoanModalProps {
     start_date: string;
     first_due_date: string;
     notes?: string;
-  }) => void;
+  }) => Promise<void> | void;
 }
 
 export const NewLoanModal: React.FC<NewLoanModalProps> = ({
@@ -43,6 +43,7 @@ export const NewLoanModal: React.FC<NewLoanModalProps> = ({
   const [startDate, setStartDate] = useState(getTodayString());
   const [firstDueDate, setFirstDueDate] = useState(addMonthsToDateString(getTodayString(), 1));
   const [notes, setNotes] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Handle prefilled simulation if passed from simulator
   useEffect(() => {
@@ -70,8 +71,10 @@ export const NewLoanModal: React.FC<NewLoanModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
     if (!borrowerName.trim()) {
       alert('Por favor, informe o nome da pessoa.');
       return;
@@ -86,19 +89,26 @@ export const NewLoanModal: React.FC<NewLoanModalProps> = ({
       return;
     }
 
-    onSubmit({
-      borrower_name: borrowerName.trim(),
-      principal_amount: principal,
-      monthly_interest_rate: rate,
-      installments_count: count,
-      start_date: startDate,
-      first_due_date: firstDueDate,
-      notes: notes.trim() || undefined,
-    });
+    setIsSubmitting(true);
+    try {
+      await onSubmit({
+        borrower_name: borrowerName.trim(),
+        principal_amount: principal,
+        monthly_interest_rate: rate,
+        installments_count: count,
+        start_date: startDate,
+        first_due_date: firstDueDate,
+        notes: notes.trim() || undefined,
+      });
 
-    setBorrowerName('');
-    setNotes('');
-    onClose();
+      setBorrowerName('');
+      setNotes('');
+      onClose();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -288,10 +298,13 @@ export const NewLoanModal: React.FC<NewLoanModalProps> = ({
             </button>
             <button
               type="submit"
-              className="px-6 py-2.5 rounded-full bg-slate-900 hover:bg-slate-800 text-white text-sm font-extrabold flex items-center gap-2 shadow-md transition-all hover:scale-[1.02]"
+              disabled={isSubmitting}
+              className={`px-6 py-2.5 rounded-full bg-slate-900 hover:bg-slate-800 text-white text-sm font-extrabold flex items-center gap-2 shadow-md transition-all ${
+                isSubmitting ? 'opacity-70 cursor-not-allowed' : 'hover:scale-[1.02]'
+              }`}
             >
               <Check className="w-4 h-4" />
-              <span>Confirmar Empréstimo</span>
+              <span>{isSubmitting ? 'Criando empréstimo...' : 'Confirmar Empréstimo'}</span>
             </button>
           </div>
         </form>

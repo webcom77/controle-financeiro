@@ -258,6 +258,8 @@ class DatabaseService {
   private isInitialized = false;
   private isCloudActive = false;
   private realtimeSubscribed = false;
+  private isMutating = false;
+  private realtimeDebounceTimer: any = null;
   private listeners: Set<DataChangeListener> = new Set();
 
   public onDataChanged(listener: DataChangeListener): () => void {
@@ -515,10 +517,20 @@ class DatabaseService {
         .on(
           'postgres_changes',
           { event: '*', schema: 'public' },
-          async () => {
-            console.log('Notificação Realtime recebida do Supabase! Atualizando...');
-            await this.syncFromSupabase();
-            this.notifyListeners();
+          () => {
+            // Se estamos executando uma mutação local (salvando empréstimo ou pagamento), ignora eco do Realtime
+            if (this.isMutating) return;
+
+            // Debounce de 600ms para aguardar todas as tabelas relacionadas terminarem de commitar
+            if (this.realtimeDebounceTimer) {
+              clearTimeout(this.realtimeDebounceTimer);
+            }
+            this.realtimeDebounceTimer = setTimeout(async () => {
+              if (this.isMutating) return;
+              console.log('Notificação Realtime recebida do Supabase (debounced). Sincronizando...');
+              await this.syncFromSupabase();
+              this.notifyListeners();
+            }, 600);
           }
         )
         .subscribe((status: any) => {
@@ -644,26 +656,27 @@ class DatabaseService {
     return { ...this.settings };
   }
 
-  public saveSettings(settings: SystemSettings): void {
+  public async saveSettings(settings: SystemSettings): Promise<void> {
     this.settings = { ...settings };
     this.persist(STORAGE_KEY_SETTINGS, this.settings);
 
     const client = getSupabaseClient();
     if (client && this.isCloudActive) {
-      client
-        .from('settings')
-        .upsert({
-          id: 1,
-          default_interest_rate: settings.default_interest_rate,
-          late_penalty_pct: settings.late_penalty_pct,
-          late_mora_monthly_pct: settings.late_mora_monthly_pct,
-          theme: settings.theme,
-          alert_days_before: settings.alert_days_before,
-          updated_at: new Date().toISOString(),
-        })
-        .then(({ error }: any) => {
-          if (error) console.error('Erro ao salvar settings no Supabase:', error);
-        });
+      try {
+        await client
+          .from('settings')
+          .upsert({
+            id: 1,
+            default_interest_rate: settings.default_interest_rate,
+            late_penalty_pct: settings.late_penalty_pct,
+            late_mora_monthly_pct: settings.late_mora_monthly_pct,
+            theme: settings.theme,
+            alert_days_before: settings.alert_days_before,
+            updated_at: new Date().toISOString(),
+          });
+      } catch (err) {
+        console.error('Erro ao salvar settings no Supabase:', err);
+      }
     }
   }
 
@@ -673,10 +686,10 @@ class DatabaseService {
   }
 
   public getBorrowerById(id: number): Borrower | undefined {
-    return this.borrowers.find((b) => b.id === id);
+    return this.borrowers.find((b) => Number(b.id) === Number(id));
   }
 
-  public createBorrower(name: string, phone?: string, document?: string, notes?: string): Borrower {
+  public async createBorrower(name: string, phone?: string, document?: string, notes?: string): Promise<Borrower> {
     const newBorrower: Borrower = {
       id: Date.now() + Math.floor(Math.random() * 1000),
       name: name.trim(),
@@ -690,21 +703,23 @@ class DatabaseService {
 
     const client = getSupabaseClient();
     if (client && this.isCloudActive) {
-      client
-        .from('borrowers')
-        .insert([
-          {
-            id: newBorrower.id,
-            name: newBorrower.name,
-            phone: newBorrower.phone || null,
-            document: newBorrower.document || null,
-            notes: newBorrower.notes || null,
-            created_at: newBorrower.created_at,
-          },
-        ])
-        .then(({ error }: any) => {
-          if (error) console.error('Erro ao salvar borrower no Supabase:', error);
-        });
+      try {
+        const { error } = await client
+          .from('borrowers')
+          .insert([
+            {
+              id: newBorrower.id,
+              name: newBorrower.name,
+              phone: newBorrower.phone || null,
+              document: newBorrower.document || null,
+              notes: newBorrower.notes || null,
+              created_at: newBorrower.created_at,
+            },
+          ]);
+        if (error) console.error('Erro ao salvar borrower no Supabase:', error);
+      } catch (err) {
+        console.error('Exceção ao salvar borrower no Supabase:', err);
+      }
     }
 
     return newBorrower;
@@ -714,7 +729,7 @@ class DatabaseService {
   public getLoans(): Loan[] {
     return this.loans
       .map((loan) => {
-        const borrower = this.borrowers.find((b) => b.id === loan.borrower_id);
+        const borrower = this.borrowers.find((b) => Number(b.id) === Number(loan.borrower_id));
         const loanInstallments = this.getInstallmentsByLoan(loan.id);
 
         const totalWithInterest = loanInstallments.reduce((acc, inst) => acc + inst.original_amount, 0);
@@ -732,10 +747,12 @@ class DatabaseService {
         const nextDueDate = pendingInstallments.length > 0 ? pendingInstallments[0].due_date : undefined;
         const hasOverdue = pendingInstallments.some((inst) => inst.status === 'overdue');
 
-        // Auto update loan status if all paid
+        // Auto update loan status if all paid, or self-heal to active if installments exist and not all paid
         let status: Loan['status'] = loan.status;
-        if (paidInstallments.length === loanInstallments.length && loanInstallments.length > 0) {
+        if (loanInstallments.length > 0 && paidInstallments.length === loanInstallments.length) {
           status = 'completed';
+        } else if (loanInstallments.length > 0 && paidInstallments.length < loanInstallments.length) {
+          status = 'active';
         }
 
         return {
@@ -767,10 +784,10 @@ class DatabaseService {
   }
 
   public getLoanById(id: number): Loan | undefined {
-    return this.getLoans().find((l) => l.id === id);
+    return this.getLoans().find((l) => Number(l.id) === Number(id));
   }
 
-  public createLoan(params: {
+  public async createLoan(params: {
     borrower_name: string;
     borrower_phone?: string;
     borrower_document?: string;
@@ -780,152 +797,174 @@ class DatabaseService {
     start_date: string;
     first_due_date: string;
     notes?: string;
-  }): { loan: Loan; installments: Installment[] } {
-    let borrower = this.borrowers.find(
-      (b) => b.name.toLowerCase() === params.borrower_name.trim().toLowerCase()
-    );
-
-    if (!borrower) {
-      borrower = this.createBorrower(
-        params.borrower_name,
-        params.borrower_phone,
-        params.borrower_document
+  }): Promise<{ loan: Loan; installments: Installment[] }> {
+    this.isMutating = true;
+    try {
+      let borrower = this.borrowers.find(
+        (b) => b.name.toLowerCase() === params.borrower_name.trim().toLowerCase()
       );
-    } else if (params.borrower_phone || params.borrower_document) {
-      if (params.borrower_phone) borrower.phone = params.borrower_phone;
-      if (params.borrower_document) borrower.document = params.borrower_document;
-      this.persist(STORAGE_KEY_BORROWERS, this.borrowers);
+
+      if (!borrower) {
+        borrower = await this.createBorrower(
+          params.borrower_name,
+          params.borrower_phone,
+          params.borrower_document
+        );
+      } else if (params.borrower_phone || params.borrower_document) {
+        if (params.borrower_phone) borrower.phone = params.borrower_phone;
+        if (params.borrower_document) borrower.document = params.borrower_document;
+        this.persist(STORAGE_KEY_BORROWERS, this.borrowers);
+
+        const client = getSupabaseClient();
+        if (client && this.isCloudActive) {
+          try {
+            await client
+              .from('borrowers')
+              .update({
+                phone: borrower.phone || null,
+                document: borrower.document || null,
+              })
+              .eq('id', borrower.id);
+          } catch (err) {
+            console.error('Erro ao atualizar borrower no Supabase:', err);
+          }
+        }
+      }
+
+      const loanId = Date.now() + Math.floor(Math.random() * 1000);
+      const newLoan: Loan = {
+        id: loanId,
+        borrower_id: borrower.id,
+        principal_amount: params.principal_amount,
+        monthly_interest_rate: params.monthly_interest_rate,
+        installments_count: params.installments_count,
+        start_date: params.start_date,
+        first_due_date: params.first_due_date,
+        status: 'active',
+        notes: params.notes,
+        created_at: new Date().toISOString(),
+      };
+
+      // Gera cronograma de parcelas
+      const simulation = generateSimulation(
+        params.principal_amount,
+        params.monthly_interest_rate,
+        params.installments_count,
+        params.first_due_date
+      );
+
+      const generatedInstallments: Installment[] = simulation.schedule.map((item, index) => ({
+        id: loanId * 100 + (index + 1),
+        loan_id: loanId,
+        installment_number: item.installment_number,
+        due_date: item.due_date,
+        original_amount: item.installment_value,
+        principal_part: item.principal_part,
+        interest_part: item.interest_part,
+        status: 'pending',
+      }));
+
+      // Salva em memória local imediatamente
+      this.loans.push(newLoan);
+      this.installments.push(...generatedInstallments);
+
+      this.persist(STORAGE_KEY_LOANS, this.loans);
+      this.persist(STORAGE_KEY_INSTALLMENTS, this.installments);
+
+      // Salva no Supabase estritamente em sequência (loans primeiro, depois installments)
+      const client = getSupabaseClient();
+      if (client && this.isCloudActive) {
+        const { error: loanErr } = await client
+          .from('loans')
+          .insert([
+            {
+              id: newLoan.id,
+              borrower_id: newLoan.borrower_id,
+              principal_amount: newLoan.principal_amount,
+              monthly_interest_rate: newLoan.monthly_interest_rate,
+              installments_count: newLoan.installments_count,
+              start_date: newLoan.start_date,
+              first_due_date: newLoan.first_due_date,
+              status: newLoan.status,
+              notes: newLoan.notes || null,
+              created_at: newLoan.created_at,
+            },
+          ]);
+
+        if (loanErr) {
+          console.error('Erro ao salvar loan no Supabase:', loanErr);
+          throw new Error('Falha ao salvar empréstimo no Supabase: ' + loanErr.message);
+        }
+
+        const { error: instErr } = await client
+          .from('installments')
+          .insert(
+            generatedInstallments.map((inst) => ({
+              id: inst.id,
+              loan_id: inst.loan_id,
+              installment_number: inst.installment_number,
+              due_date: inst.due_date,
+              original_amount: inst.original_amount,
+              principal_part: inst.principal_part,
+              interest_part: inst.interest_part,
+              status: inst.status,
+            }))
+          );
+
+        if (instErr) {
+          console.error('Erro ao salvar installments no Supabase:', instErr);
+          throw new Error('Falha ao salvar parcelas no Supabase: ' + instErr.message);
+        }
+      }
+
+      return {
+        loan: newLoan,
+        installments: generatedInstallments,
+      };
+    } finally {
+      setTimeout(() => {
+        this.isMutating = false;
+      }, 500);
+    }
+  }
+
+  public async deleteLoan(loanId: number): Promise<void> {
+    this.isMutating = true;
+    try {
+      this.loans = this.loans.filter((l) => Number(l.id) !== Number(loanId));
+      this.installments = this.installments.filter((i) => Number(i.loan_id) !== Number(loanId));
+      this.payments = this.payments.filter((p) => Number(p.loan_id) !== Number(loanId));
+
+      this.persist(STORAGE_KEY_LOANS, this.loans);
+      this.persist(STORAGE_KEY_INSTALLMENTS, this.installments);
+      this.persist(STORAGE_KEY_PAYMENTS, this.payments);
 
       const client = getSupabaseClient();
       if (client && this.isCloudActive) {
-        client
-          .from('borrowers')
-          .update({
-            phone: borrower.phone || null,
-            document: borrower.document || null,
-          })
-          .eq('id', borrower.id)
-          .then(({ error }: any) => {
-            if (error) console.error('Erro ao atualizar borrower no Supabase:', error);
-          });
-      }
-    }
-
-    const loanId = Date.now() + Math.floor(Math.random() * 1000);
-    const newLoan: Loan = {
-      id: loanId,
-      borrower_id: borrower.id,
-      principal_amount: params.principal_amount,
-      monthly_interest_rate: params.monthly_interest_rate,
-      installments_count: params.installments_count,
-      start_date: params.start_date,
-      first_due_date: params.first_due_date,
-      status: 'active',
-      notes: params.notes,
-      created_at: new Date().toISOString(),
-    };
-
-    // Gera cronograma de parcelas
-    const simulation = generateSimulation(
-      params.principal_amount,
-      params.monthly_interest_rate,
-      params.installments_count,
-      params.first_due_date
-    );
-
-    const generatedInstallments: Installment[] = simulation.schedule.map((item, index) => ({
-      id: loanId * 100 + (index + 1),
-      loan_id: loanId,
-      installment_number: item.installment_number,
-      due_date: item.due_date,
-      original_amount: item.installment_value,
-      principal_part: item.principal_part,
-      interest_part: item.interest_part,
-      status: 'pending',
-    }));
-
-    this.loans.push(newLoan);
-    this.installments.push(...generatedInstallments);
-
-    this.persist(STORAGE_KEY_LOANS, this.loans);
-    this.persist(STORAGE_KEY_INSTALLMENTS, this.installments);
-
-    const client = getSupabaseClient();
-    if (client && this.isCloudActive) {
-      client
-        .from('loans')
-        .insert([
-          {
-            id: newLoan.id,
-            borrower_id: newLoan.borrower_id,
-            principal_amount: newLoan.principal_amount,
-            monthly_interest_rate: newLoan.monthly_interest_rate,
-            installments_count: newLoan.installments_count,
-            start_date: newLoan.start_date,
-            first_due_date: newLoan.first_due_date,
-            status: newLoan.status,
-            notes: newLoan.notes || null,
-            created_at: newLoan.created_at,
-          },
-        ])
-        .then(({ error }: any) => {
-          if (error) console.error('Erro ao salvar loan no Supabase:', error);
-        });
-
-      client
-        .from('installments')
-        .insert(
-          generatedInstallments.map((inst) => ({
-            id: inst.id,
-            loan_id: inst.loan_id,
-            installment_number: inst.installment_number,
-            due_date: inst.due_date,
-            original_amount: inst.original_amount,
-            principal_part: inst.principal_part,
-            interest_part: inst.interest_part,
-            status: inst.status,
-          }))
-        )
-        .then(({ error }: any) => {
-          if (error) console.error('Erro ao salvar installments no Supabase:', error);
-        });
-    }
-
-    return {
-      loan: newLoan,
-      installments: generatedInstallments,
-    };
-  }
-
-  public deleteLoan(loanId: number): void {
-    this.loans = this.loans.filter((l) => l.id !== loanId);
-    this.installments = this.installments.filter((i) => i.loan_id !== loanId);
-    this.payments = this.payments.filter((p) => p.loan_id !== loanId);
-
-    this.persist(STORAGE_KEY_LOANS, this.loans);
-    this.persist(STORAGE_KEY_INSTALLMENTS, this.installments);
-    this.persist(STORAGE_KEY_PAYMENTS, this.payments);
-
-    const client = getSupabaseClient();
-    if (client && this.isCloudActive) {
-      client
-        .from('loans')
-        .delete()
-        .eq('id', loanId)
-        .then(({ error }: any) => {
+        try {
+          await client.from('payments').delete().eq('loan_id', loanId);
+          await client.from('installments').delete().eq('loan_id', loanId);
+          const { error } = await client.from('loans').delete().eq('id', loanId);
           if (error) console.error('Erro ao deletar loan no Supabase:', error);
-        });
+        } catch (err) {
+          console.error('Exceção ao deletar no Supabase:', err);
+        }
+      }
+    } finally {
+      setTimeout(() => {
+        this.isMutating = false;
+      }, 500);
     }
   }
 
   // --- INSTALLMENTS & CHARGES ---
   public getInstallmentsByLoan(loanId: number): Installment[] {
-    const loan = this.loans.find((l) => l.id === loanId);
+    const loan = this.loans.find((l) => Number(l.id) === Number(loanId));
     const rate = loan?.monthly_interest_rate || this.settings.default_interest_rate;
-    const borrower = loan ? this.borrowers.find((b) => b.id === loan.borrower_id) : undefined;
+    const borrower = loan ? this.borrowers.find((b) => Number(b.id) === Number(loan.borrower_id)) : undefined;
 
     return this.installments
-      .filter((inst) => inst.loan_id === loanId)
+      .filter((inst) => Number(inst.loan_id) === Number(loanId))
       .map((inst) => {
         const enriched = enrichInstallmentWithCharges(inst, rate, this.settings);
         return {
@@ -939,8 +978,8 @@ class DatabaseService {
 
   public getAllInstallments(): Installment[] {
     return this.installments.map((inst) => {
-      const loan = this.loans.find((l) => l.id === inst.loan_id);
-      const borrower = loan ? this.borrowers.find((b) => b.id === loan.borrower_id) : undefined;
+      const loan = this.loans.find((l) => Number(l.id) === Number(inst.loan_id));
+      const borrower = loan ? this.borrowers.find((b) => Number(b.id) === Number(loan.borrower_id)) : undefined;
       const rate = loan?.monthly_interest_rate || this.settings.default_interest_rate;
       const enriched = enrichInstallmentWithCharges(inst, rate, this.settings);
 
@@ -953,122 +992,127 @@ class DatabaseService {
   }
 
   // --- PAYMENTS & RECEIPT ---
-  public receiveInstallmentPayment(params: {
+  public async receiveInstallmentPayment(params: {
     installment_id: number;
     paid_amount: number;
     paid_date: string;
     payment_method: PaymentMethod;
-  }): { installment: Installment; paymentRecord: PaymentRecord } {
-    const instIndex = this.installments.findIndex((i) => i.id === params.installment_id);
-    if (instIndex === -1) {
-      throw new Error('Parcela não encontrada');
-    }
-
-    const inst = this.installments[instIndex];
-    const loan = this.loans.find((l) => l.id === inst.loan_id);
-    const borrower = loan ? this.borrowers.find((b) => b.id === loan.borrower_id) : undefined;
-
-    const principalRecovered = Math.min(params.paid_amount, inst.principal_part);
-    const remainder = Math.max(0, params.paid_amount - principalRecovered);
-    const interestRealized = Math.min(remainder, inst.interest_part);
-    const chargesPaid = Math.max(0, remainder - interestRealized);
-
-    const updatedInst: Installment = {
-      ...inst,
-      status: 'paid',
-      paid_amount: params.paid_amount,
-      paid_date: params.paid_date,
-      payment_method: params.payment_method,
-    };
-    this.installments[instIndex] = updatedInst;
-
-    const paymentRecord: PaymentRecord = {
-      id: Date.now() + Math.floor(Math.random() * 1000),
-      installment_id: inst.id,
-      loan_id: inst.loan_id,
-      borrower_name: borrower?.name || 'Cliente',
-      installment_number: inst.installment_number,
-      total_installments: loan?.installments_count || 1,
-      due_date: inst.due_date,
-      paid_date: params.paid_date,
-      original_amount: inst.original_amount,
-      paid_amount: params.paid_amount,
-      principal_recovered: principalRecovered,
-      interest_realized: interestRealized,
-      charges_paid: chargesPaid,
-      payment_method: params.payment_method,
-    };
-    this.payments.push(paymentRecord);
-
-    // Verifica se o empréstimo foi quitado por completo
-    const loanAllInstallments = this.installments.filter((i) => i.loan_id === inst.loan_id);
-    let loanCompleted = false;
-    if (loanAllInstallments.every((i) => i.status === 'paid')) {
-      const loanIdx = this.loans.findIndex((l) => l.id === inst.loan_id);
-      if (loanIdx !== -1) {
-        this.loans[loanIdx].status = 'completed';
-        loanCompleted = true;
+  }): Promise<{ installment: Installment; paymentRecord: PaymentRecord }> {
+    this.isMutating = true;
+    try {
+      const instIndex = this.installments.findIndex((i) => Number(i.id) === Number(params.installment_id));
+      if (instIndex === -1) {
+        throw new Error('Parcela não encontrada');
       }
-    }
 
-    this.persist(STORAGE_KEY_INSTALLMENTS, this.installments);
-    this.persist(STORAGE_KEY_PAYMENTS, this.payments);
-    this.persist(STORAGE_KEY_LOANS, this.loans);
+      const inst = this.installments[instIndex];
+      const loan = this.loans.find((l) => Number(l.id) === Number(inst.loan_id));
+      const borrower = loan ? this.borrowers.find((b) => Number(b.id) === Number(loan.borrower_id)) : undefined;
 
-    const client = getSupabaseClient();
-    if (client && this.isCloudActive) {
-      client
-        .from('installments')
-        .update({
-          status: 'paid',
-          paid_amount: params.paid_amount,
-          paid_date: params.paid_date,
-          payment_method: params.payment_method,
-        })
-        .eq('id', params.installment_id)
-        .then(({ error }: any) => {
-          if (error) console.error('Erro ao atualizar installment no Supabase:', error);
-        });
+      const principalRecovered = Math.min(params.paid_amount, inst.principal_part);
+      const remainder = Math.max(0, params.paid_amount - principalRecovered);
+      const interestRealized = Math.min(remainder, inst.interest_part);
+      const chargesPaid = Math.max(0, remainder - interestRealized);
 
-      client
-        .from('payments')
-        .insert([
-          {
-            id: paymentRecord.id,
-            installment_id: paymentRecord.installment_id,
-            loan_id: paymentRecord.loan_id,
-            borrower_name: paymentRecord.borrower_name,
-            installment_number: paymentRecord.installment_number,
-            total_installments: paymentRecord.total_installments,
-            due_date: paymentRecord.due_date,
-            paid_date: paymentRecord.paid_date,
-            original_amount: paymentRecord.original_amount,
-            paid_amount: paymentRecord.paid_amount,
-            principal_recovered: paymentRecord.principal_recovered,
-            interest_realized: paymentRecord.interest_realized,
-            charges_paid: paymentRecord.charges_paid,
-            payment_method: paymentRecord.payment_method,
-          },
-        ])
-        .then(({ error }: any) => {
-          if (error) console.error('Erro ao salvar payment no Supabase:', error);
-        });
+      const updatedInst: Installment = {
+        ...inst,
+        status: 'paid',
+        paid_amount: params.paid_amount,
+        paid_date: params.paid_date,
+        payment_method: params.payment_method,
+      };
+      this.installments[instIndex] = updatedInst;
 
-      if (loanCompleted && loan) {
-        client
-          .from('loans')
-          .update({ status: 'completed' })
-          .eq('id', loan.id)
-          .then(({ error }: any) => {
-            if (error) console.error('Erro ao atualizar status do loan no Supabase:', error);
-          });
+      const paymentRecord: PaymentRecord = {
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        installment_id: inst.id,
+        loan_id: inst.loan_id,
+        borrower_name: borrower?.name || 'Cliente',
+        installment_number: inst.installment_number,
+        total_installments: loan?.installments_count || 1,
+        due_date: inst.due_date,
+        paid_date: params.paid_date,
+        original_amount: inst.original_amount,
+        paid_amount: params.paid_amount,
+        principal_recovered: principalRecovered,
+        interest_realized: interestRealized,
+        charges_paid: chargesPaid,
+        payment_method: params.payment_method,
+      };
+      this.payments.push(paymentRecord);
+
+      // Verifica se o empréstimo foi quitado por completo
+      const loanAllInstallments = this.installments.filter((i) => Number(i.loan_id) === Number(inst.loan_id));
+      let loanCompleted = false;
+      if (loanAllInstallments.length > 0 && loanAllInstallments.every((i) => i.status === 'paid')) {
+        const loanIdx = this.loans.findIndex((l) => Number(l.id) === Number(inst.loan_id));
+        if (loanIdx !== -1) {
+          this.loans[loanIdx].status = 'completed';
+          loanCompleted = true;
+        }
       }
-    }
 
-    return {
-      installment: updatedInst,
-      paymentRecord,
-    };
+      this.persist(STORAGE_KEY_INSTALLMENTS, this.installments);
+      this.persist(STORAGE_KEY_PAYMENTS, this.payments);
+      this.persist(STORAGE_KEY_LOANS, this.loans);
+
+      const client = getSupabaseClient();
+      if (client && this.isCloudActive) {
+        try {
+          const { error: instErr } = await client
+            .from('installments')
+            .update({
+              status: 'paid',
+              paid_amount: params.paid_amount,
+              paid_date: params.paid_date,
+              payment_method: params.payment_method,
+            })
+            .eq('id', params.installment_id);
+          if (instErr) console.error('Erro ao atualizar installment no Supabase:', instErr);
+
+          const { error: payErr } = await client
+            .from('payments')
+            .insert([
+              {
+                id: paymentRecord.id,
+                installment_id: paymentRecord.installment_id,
+                loan_id: paymentRecord.loan_id,
+                borrower_name: paymentRecord.borrower_name,
+                installment_number: paymentRecord.installment_number,
+                total_installments: paymentRecord.total_installments,
+                due_date: paymentRecord.due_date,
+                paid_date: paymentRecord.paid_date,
+                original_amount: paymentRecord.original_amount,
+                paid_amount: paymentRecord.paid_amount,
+                principal_recovered: paymentRecord.principal_recovered,
+                interest_realized: paymentRecord.interest_realized,
+                charges_paid: paymentRecord.charges_paid,
+                payment_method: paymentRecord.payment_method,
+              },
+            ]);
+          if (payErr) console.error('Erro ao salvar payment no Supabase:', payErr);
+
+          if (loanCompleted && loan) {
+            const { error: loanErr } = await client
+              .from('loans')
+              .update({ status: 'completed' })
+              .eq('id', loan.id);
+            if (loanErr) console.error('Erro ao atualizar status do loan no Supabase:', loanErr);
+          }
+        } catch (err) {
+          console.error('Exceção ao registrar pagamento no Supabase:', err);
+        }
+      }
+
+      return {
+        installment: updatedInst,
+        paymentRecord,
+      };
+    } finally {
+      setTimeout(() => {
+        this.isMutating = false;
+      }, 500);
+    }
   }
 
   public getPaymentHistory(): PaymentRecord[] {

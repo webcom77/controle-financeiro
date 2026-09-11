@@ -37,7 +37,7 @@ export const LoanList: React.FC<LoanListProps> = ({
 
   const handleCopyWhatsAppMessage = (loan: Loan, e: React.MouseEvent) => {
     e.stopPropagation();
-    const loanInstallments = allInstallments.filter((i) => i.loan_id === loan.id);
+    const loanInstallments = allInstallments.filter((i) => Number(i.loan_id) === Number(loan.id));
     const pending = loanInstallments.filter((i) => i.status !== 'paid');
 
     if (pending.length === 0) return;
@@ -138,7 +138,7 @@ export const LoanList: React.FC<LoanListProps> = ({
           </thead>
           <tbody className={`divide-y ${isDark ? 'divide-[#202533]' : 'divide-slate-100'}`}>
             {loans.map((loan) => {
-              const loanInstallments = allInstallments.filter((i) => i.loan_id === loan.id);
+              const loanInstallments = allInstallments.filter((i) => Number(i.loan_id) === Number(loan.id));
               const pending = loanInstallments
                 .filter((i) => i.status !== 'paid')
                 .sort((a, b) => a.due_date.localeCompare(b.due_date));
@@ -151,7 +151,7 @@ export const LoanList: React.FC<LoanListProps> = ({
 
               const currentVal = nextInst
                 ? (nextInst.current_total_due || nextInst.original_amount)
-                : (loan.principal_amount / totalCount);
+                : (loanInstallments[0]?.original_amount || (loan.principal_amount / totalCount));
 
               const isOverdue = nextInst?.status === 'overdue' || (nextInst?.days_overdue && nextInst.days_overdue > 0);
 
@@ -235,9 +235,13 @@ export const LoanList: React.FC<LoanListProps> = ({
                           </span>
                         )}
                       </div>
-                    ) : (
+                    ) : loan.status === 'completed' || (loanInstallments.length > 0 && pending.length === 0) ? (
                       <span className="text-emerald-500 font-bold text-xs flex items-center gap-1">
                         <CheckCircle2 className="w-3.5 h-3.5" /> Quitado
+                      </span>
+                    ) : (
+                      <span className="text-slate-400 font-bold text-xs">
+                        {loan.first_due_date ? `1ª em ${formatDate(loan.first_due_date)}` : `${loan.installments_count} parcelas`}
                       </span>
                     )}
                   </td>
